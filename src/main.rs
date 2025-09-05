@@ -1,14 +1,19 @@
 use crate::app::App;
+use tui_logger;
 
 mod app;
 mod event;
 mod ui;
+mod widgets;
 
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {
+    tui_logger::init_logger(log::LevelFilter::Debug).unwrap();
+    tui_logger::set_default_level(log::LevelFilter::Debug);
     color_eyre::install()?;
     let terminal = ratatui::init();
-    let result = App::new().run(terminal).await;
+    log::info!("Starting application");
+    let result = App::new().await.run(terminal).await;
     ratatui::restore();
     result
 }

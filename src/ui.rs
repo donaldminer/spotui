@@ -1,67 +1,66 @@
 use crate::app::App;
+// use crate::widgets::{current_user::CurrentUser, user_playlist::UserPlaylist};
+use crate::widgets::user_playlist::UserPlaylist;
 use ratatui::{
     buffer::Buffer,
-    layout::Rect,
-    layout::{Constraint, Layout},
-    symbols,
-    widgets::{Block, Borders, Widget},
+    layout::{Direction, Layout, Rect},
+    // style::{Color, Style},
+    widgets::Widget,
 };
+use tui_logger::*;
 
 impl Widget for &App {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let [left, right] =
-            Layout::horizontal([Constraint::Percentage(49), Constraint::Percentage(51)])
-                .areas(area);
-        // use a 49/51 split to ensure that any extra space is on the bottom
-        let [top_right, bottom_right] =
-            Layout::vertical([Constraint::Percentage(49), Constraint::Percentage(51)]).areas(right);
-        // ANCHOR_END: layout
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .margin(1)
+            .constraints(
+                [
+                    // ratatui::layout::Constraint::Percentage(20),
+                    // ratatui::layout::Constraint::Percentage(50),
+                    // ratatui::layout::Constraint::Percentage(30),
+                    ratatui::layout::Constraint::Percentage(50),
+                    ratatui::layout::Constraint::Percentage(50),
+                ]
+                .as_ref(),
+            )
+            .split(area);
 
-        // ANCHOR: left_block
-        let left_block = Block::new()
-            // don't render the right border because it will be rendered by the right block
-            .borders(Borders::TOP | Borders::LEFT | Borders::BOTTOM)
-            .title("Left Block");
-        // ANCHOR_END: left_block
-
-        // ANCHOR: top_right_block
-        // top right block must render the top left border to join with the left block
-        let top_right_border_set = symbols::border::Set {
-            top_left: symbols::line::NORMAL.horizontal_down,
-            ..symbols::border::PLAIN
+        let user_playlists = UserPlaylist {
+            name: "My Playlist".to_string(),
+            list: self.current_user.user_playlists.playlists.clone(),
+            list_state: self.current_user.user_playlists.playlists_state.clone(),
         };
-        let top_right_block = Block::new()
-            .border_set(top_right_border_set)
-            // don't render the bottom border because it will be rendered by the bottom block
-            .borders(Borders::TOP | Borders::LEFT | Borders::RIGHT)
-            .title("Top Right Block");
-        // ANCHOR_END: top_right_block
+        // let user_profile = CurrentUser {
+        //     name: self.current_user.user_profile.display_name.clone(),
+        //     product: self.current_user.user_profile.product.clone(),
+        //     top_artists: self.current_user.user_top_items.artists.clone(),
+        //     top_tracks: self.current_user.user_top_items.tracks.clone(),
+        // };
+        //
+        // match &self.active_widget {
+        //     crate::app::ActiveWidget::UserProfile => {
+        //         // Highlight current user section
+        //         let highlight_block = ratatui::widgets::Block::default()
+        //             .borders(ratatui::widgets::Borders::ALL)
+        //             .border_style(ratatui::style::Style::default());
+        //         highlight_block.render(layout[0], buf);
+        //     }
+        //     crate::app::ActiveWidget::UserPlaylists => {
+        //         // Highlight user playlists section
+        //         let highlight_block = ratatui::widgets::Block::default()
+        //             .borders(ratatui::widgets::Borders::ALL)
+        //             .border_style(
+        //                 ratatui::style::Style::default().fg(ratatui::style::Color::Yellow),
+        //             );
+        //         highlight_block.render(layout[1], buf);
+        //     }
+        //     _ => {}
+        // }
+        let smart_logger = TuiLoggerWidget::default();
+        smart_logger.render(layout[0], buf);
 
-        // ANCHOR: bottom_right_block
-        // bottom right block must render:
-        // - top left border to join with the left block and top right block
-        // - top right border to join with the top right block
-        // - bottom left border to join with the left block
-        let collapsed_top_and_left_border_set = symbols::border::Set {
-            top_left: symbols::line::NORMAL.vertical_right,
-            top_right: symbols::line::NORMAL.vertical_left,
-            bottom_left: symbols::line::NORMAL.horizontal_up,
-            ..symbols::border::PLAIN
-        };
-        let bottom_right_block = Block::new()
-            .border_set(collapsed_top_and_left_border_set)
-            .borders(Borders::ALL)
-            .title("Bottom Right Block");
-        // ANCHOR_END: bottom_right_block
-
-        // ANCHOR: render
-        left_block.render(left, buf);
-        top_right_block.render(top_right, buf);
-        bottom_right_block.render(bottom_right, buf);
-
-        // frame.render_widget(left_block, left);
-        // frame.render_widget(top_right_block, top_right);
-        // frame.render_widget(bottom_right_block, bottom_right);
-        // ANCHOR_END: render}
+        // user_profile.render(layout[0], buf);
+        user_playlists.render(layout[1], buf);
     }
 }
