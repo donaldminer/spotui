@@ -10,10 +10,10 @@ This project is a work in progress and is not yet functional. It is intended to 
 ## Built With
 
 - [Rust](https://www.rust-lang.org/) - The programming language used
-- [Crossterm](https://crates.io/crates/crossterm)
-  - For handling terminal input and output
+- [Crossterm](https://crates.io/crates/crossterm) - For handling terminal input and output
 - [Spotify Web API](https://developer.spotify.com/documentation/web-api/) - For interacting with Spotify's services
-- [spotify-rs](https://github.com/spotify-rs/spotify-rs) - For interacting with Spotify's services
+- [spotify-rs](https://docs.rs/spotify-rs/latest/spotify_rs/index.html) - A Rust wrapper for the Spotify API
+- [ratatui](https://ratatui.rs/) - For building the terminal user interface
 
 ## Getting Started
 
