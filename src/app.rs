@@ -1,21 +1,22 @@
 use crate::event::{AppEvent, Event, EventHandler};
-use ratatui::DefaultTerminal;
-use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use open;
+use ratatui::{
+    DefaultTerminal,
+    crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
+    widgets::ListState,
+};
 use reqwest::Url;
 use rouille::{Response, Server};
-use spotify_rs::model::Page;
 use spotify_rs::{
     AuthCodePkceClient, AuthCodePkceFlow, RedirectUrl, Token,
     client::Client,
     model::{
         artist::Artist,
-        player::{Device, Queue},
-        playlist::SimplifiedPlaylist,
+        playlist::{PlaylistItem, SimplifiedPlaylist},
         track::Track,
     },
 };
 use std::sync::{Arc, Mutex};
-use tui_logger::TuiWidgetState;
 
 const SCOPES: [&str; 9] = [
     "user-top-read",
@@ -29,74 +30,74 @@ const SCOPES: [&str; 9] = [
     "playlist-read-collaborative",
 ];
 
-#[derive(Debug)]
-pub struct UserProfile {
-    pub display_name: String,
-    pub product: String,
+#[derive(Debug, Clone)]
+pub struct Directory {
+    pub title: String,
+    pub list: Vec<ratatui::widgets::ListItem<'static>>,
+    pub list_state: ListState,
 }
-#[derive(Debug, Default)]
-pub struct UserTopItems {
-    pub tracks: Option<Page<Track>>,
-    pub artists: Option<Page<Artist>>,
-}
+
 #[derive(Debug, Clone)]
 pub struct UserPlaylists {
-    pub playlists: Option<Page<SimplifiedPlaylist>>,
-    pub playlists_state: ratatui::widgets::ListState,
-}
-impl Default for UserPlaylists {
-    fn default() -> Self {
-        Self {
-            playlists: None,
-            playlists_state: ratatui::widgets::ListState::default(),
-        }
-    }
+    pub name: String,
+    pub list: Vec<Option<SimplifiedPlaylist>>,
+    pub list_state: ListState,
 }
 
-#[derive(Debug)]
-pub struct CurrentUser {
-    pub user_profile: UserProfile,
-    pub user_top_items: UserTopItems,
+#[derive(Debug, Clone)]
+pub struct UserTopTracks {
+    pub name: String,
+    pub list: Vec<Option<Track>>,
+    pub list_state: ListState,
+}
+
+#[derive(Debug, Clone)]
+pub struct UserTopArtists {
+    pub name: String,
+    pub list: Vec<Option<Artist>>,
+    pub list_state: ListState,
+}
+
+#[derive(Debug, Clone)]
+pub struct Playlist {
+    pub name: String,
+    pub list: Vec<Option<PlaylistItem>>,
+    pub list_state: ListState,
+}
+
+#[derive(Debug, Clone)]
+pub struct UserLibrary {
+    pub display_name: String,
+    pub product: String,
+    pub selected_state: ListState,
+    pub directory: Directory,
     pub user_playlists: UserPlaylists,
+    pub user_top_tracks: UserTopTracks,
+    pub user_top_artists: UserTopArtists,
+    pub playlist: Playlist,
 }
-impl Default for CurrentUser {
-    fn default() -> Self {
-        Self {
-            user_profile: UserProfile {
-                display_name: String::new(),
-                product: String::new(),
-            },
-            user_top_items: UserTopItems {
-                tracks: None,
-                artists: None,
-            },
-            user_playlists: UserPlaylists::default(),
-        }
-    }
+
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum ActiveBlock {
+    Directory,
+    UserPlaylists,
+    UserTopTracks,
+    UserTopArtists,
+    Playlist,
 }
 
 #[derive(Debug)]
-pub struct Player {
-    pub device_id: Vec<Device>,
-    pub queue: Option<Queue>,
-}
-
-impl Default for Player {
-    fn default() -> Self {
-        Self {
-            device_id: vec![],
-            queue: None,
-        }
-    }
+pub struct Route {
+    pub active_block: ActiveBlock,
+    pub hovered_block: ActiveBlock,
 }
 
 pub struct App {
     pub running: bool,
     pub events: EventHandler,
     pub spotify_client: Client<Token, AuthCodePkceFlow>,
-    pub current_user: CurrentUser,
-    pub player: Player,
-    pub state: TuiWidgetState,
+    pub user_library: UserLibrary,
+    pub route: Route,
 }
 impl App {
     pub async fn new() -> Self {
@@ -112,9 +113,44 @@ impl App {
             running: true,
             events: EventHandler::new(),
             spotify_client,
-            current_user: CurrentUser::default(),
-            player: Player::default(),
-            state: TuiWidgetState::new().set_default_display_level(log::LevelFilter::Debug),
+            user_library: UserLibrary {
+                display_name: String::new(),
+                product: String::new(),
+                selected_state: ListState::default(),
+                directory: Directory {
+                    title: "Directory".to_string(),
+                    list: vec![
+                        ratatui::widgets::ListItem::new("Playlists"),
+                        ratatui::widgets::ListItem::new("Top Tracks"),
+                        ratatui::widgets::ListItem::new("Top Artists"),
+                    ],
+                    list_state: ListState::default(),
+                },
+                user_playlists: UserPlaylists {
+                    name: "My Playlists".to_string(),
+                    list: Vec::new(),
+                    list_state: ListState::default(),
+                },
+                user_top_tracks: UserTopTracks {
+                    name: "My Top Tracks".to_string(),
+                    list: Vec::new(),
+                    list_state: ListState::default(),
+                },
+                user_top_artists: UserTopArtists {
+                    name: "My Top Artists".to_string(),
+                    list: Vec::new(),
+                    list_state: ListState::default(),
+                },
+                playlist: Playlist {
+                    name: String::new(),
+                    list: Vec::new(),
+                    list_state: ListState::default(),
+                },
+            },
+            route: Route {
+                active_block: ActiveBlock::Directory,
+                hovered_block: ActiveBlock::UserPlaylists,
+            },
         }
     }
 
@@ -167,8 +203,8 @@ impl App {
             RedirectUrl::new(redirect_uri)?,
             auto_refresh,
         );
-
-        println!("Navigate to {url} to complete the OAuth process.");
+        log::info!("Opening browser for Spotify authentication...");
+        open::that(url.as_str())?;
 
         let (auth_code, csrf_state) = rx.recv().unwrap();
 
@@ -192,6 +228,8 @@ impl App {
                 },
                 Event::App(app_event) => match app_event {
                     AppEvent::Quit => self.quit(),
+                    AppEvent::Select => self.select().await,
+                    AppEvent::Next => self.next().await,
                 },
             }
         }
@@ -204,56 +242,117 @@ impl App {
             KeyCode::Char('c' | 'C') if key_event.modifiers == KeyModifiers::CONTROL => {
                 self.events.send(AppEvent::Quit)
             }
-            KeyCode::Tab => {}
+            KeyCode::Tab => self.events.send(AppEvent::Next),
             KeyCode::Up | KeyCode::Char('k') => self.up(),
             KeyCode::Down | KeyCode::Char('j') => self.down(),
             KeyCode::Left | KeyCode::Char('h') => {}
             KeyCode::Right | KeyCode::Char('l') => {}
+            KeyCode::Enter => self.events.send(AppEvent::Select),
             _ => {}
         }
         Ok(())
     }
 
-    pub fn up(&mut self) {
-        let i = match self.current_user.user_playlists.playlists_state.selected() {
-            Some(i) => {
-                if i == 0 {
-                    0
-                } else {
-                    i - 1
-                }
-            }
-            None => 0,
+    pub async fn next(&mut self) {
+        self.route.active_block = match self.route.active_block {
+            ActiveBlock::Directory => self.route.hovered_block,
+            _ => ActiveBlock::Directory,
         };
-        self.current_user
-            .user_playlists
-            .playlists_state
-            .select(Some(i));
     }
-    pub fn down(&mut self) {
-        let i = match self.current_user.user_playlists.playlists_state.selected() {
-            Some(i) => {
-                if i >= self
-                    .current_user
-                    .user_playlists
-                    .playlists
-                    .as_ref()
-                    .unwrap()
-                    .items
-                    .len()
-                    - 1
-                {
-                    0
-                } else {
-                    i + 1
+
+    pub async fn select(&mut self) {
+        match self.route.active_block {
+            ActiveBlock::Directory => {
+                match self.user_library.directory.list_state.selected() {
+                    Some(0) => self.route.active_block = ActiveBlock::UserPlaylists,
+                    Some(1) => self.route.active_block = ActiveBlock::UserTopTracks,
+                    Some(2) => self.route.active_block = ActiveBlock::UserTopArtists,
+                    _ => {}
                 }
+                self.route.hovered_block = self.route.active_block
             }
-            None => 0,
+            ActiveBlock::UserPlaylists => {
+                match self.user_library.user_playlists.list_state.selected() {
+                    Some(i) => {
+                        let playlist = spotify_rs::playlist(
+                            self.user_library.user_playlists.list[i]
+                                .as_ref()
+                                .unwrap()
+                                .clone()
+                                .id,
+                        )
+                        .get(&self.spotify_client)
+                        .await
+                        .unwrap();
+
+                        self.user_library.playlist.name = playlist.name.clone();
+                        self.user_library.playlist.list = playlist.tracks.items;
+                        self.user_library.playlist.list_state = ListState::default();
+                    }
+                    _ => {}
+                }
+                self.route.active_block = ActiveBlock::Playlist;
+                self.route.hovered_block = ActiveBlock::Playlist;
+            }
+            ActiveBlock::UserTopTracks => match self.user_library.selected_state.selected() {
+                _ => todo!(),
+            },
+            ActiveBlock::UserTopArtists => match self.user_library.selected_state.selected() {
+                _ => todo!(),
+            },
+            ActiveBlock::Playlist => match self.user_library.selected_state.selected() {
+                _ => todo!(),
+            },
         };
-        self.current_user
-            .user_playlists
-            .playlists_state
-            .select(Some(i));
+    }
+
+    pub fn up(&mut self) {
+        match self.route.active_block {
+            ActiveBlock::Directory => {
+                self.user_library.directory.list_state.select_previous();
+            }
+            ActiveBlock::UserPlaylists => {
+                self.user_library
+                    .user_playlists
+                    .list_state
+                    .select_previous();
+            }
+            ActiveBlock::UserTopTracks => {
+                self.user_library
+                    .user_top_tracks
+                    .list_state
+                    .select_previous();
+            }
+            ActiveBlock::UserTopArtists => {
+                self.user_library
+                    .user_top_artists
+                    .list_state
+                    .select_previous();
+            }
+            ActiveBlock::Playlist => {
+                self.user_library.playlist.list_state.select_previous();
+            }
+        }
+    }
+
+    pub fn down(&mut self) {
+        match self.route.active_block {
+            ActiveBlock::Directory => {
+                self.user_library.directory.list_state.select_next();
+            }
+            ActiveBlock::UserPlaylists => {
+                self.user_library.user_playlists.list_state.select_next();
+            }
+            ActiveBlock::UserTopTracks => {
+                self.user_library.user_top_tracks.list_state.select_next();
+            }
+            ActiveBlock::UserTopArtists => {
+                self.user_library.user_top_artists.list_state.select_next();
+            }
+            ActiveBlock::Playlist => {
+                self.user_library.playlist.list_state.select_next();
+            }
+        }
     }
 
     pub fn tick(&self) {}
@@ -263,52 +362,42 @@ impl App {
     }
 
     pub async fn init(&mut self) -> color_eyre::Result<()> {
-        self.get_user_playlists().await?;
-        self.get_user_profile().await?;
-        self.get_user_top_items().await?;
-        self.get_player().await?;
-        Ok(())
-    }
+        let spotify_client = &self.spotify_client;
 
-    pub async fn get_player(&mut self) -> color_eyre::Result<()> {
-        self.player = Player {
-            device_id: spotify_rs::get_available_devices(&self.spotify_client).await?,
-            queue: Some(spotify_rs::get_user_queue(&self.spotify_client).await?),
-        };
-        Ok(())
-    }
-    pub async fn get_user_playlists(&mut self) -> color_eyre::Result<()> {
-        self.current_user.user_playlists.playlists = Some(
+        let get_user_playlists_future = async {
             spotify_rs::current_user_playlists()
-                .get(&self.spotify_client)
-                .await?,
-        );
-        Ok(())
-    }
-
-    pub async fn get_user_profile(&mut self) -> color_eyre::Result<()> {
-        self.current_user.user_profile = spotify_rs::get_current_user_profile(&self.spotify_client)
-            .await
-            .map(|profile| UserProfile {
-                display_name: profile.display_name.unwrap_or_default(),
-                product: profile.product.unwrap_or_default(),
-            })?;
-        Ok(())
-    }
-
-    pub async fn get_user_top_items(&mut self) -> color_eyre::Result<()> {
-        self.current_user.user_top_items = UserTopItems {
-            tracks: Some(
-                spotify_rs::current_user_top_tracks()
-                    .get(&self.spotify_client)
-                    .await?,
-            ),
-            artists: Some(
-                spotify_rs::current_user_top_artists()
-                    .get(&self.spotify_client)
-                    .await?,
-            ),
+                .get(spotify_client)
+                .await
         };
+
+        let get_user_profile_future =
+            async { spotify_rs::get_current_user_profile(spotify_client).await };
+
+        let get_user_top_tracks_future = async {
+            spotify_rs::current_user_top_tracks()
+                .get(spotify_client)
+                .await
+        };
+
+        let get_user_top_artists_future = async {
+            spotify_rs::current_user_top_artists()
+                .get(spotify_client)
+                .await
+        };
+
+        let (playlists_result, profile_result, top_tracks_result, top_artists_result) = tokio::join!(
+            get_user_playlists_future,
+            get_user_profile_future,
+            get_user_top_tracks_future,
+            get_user_top_artists_future,
+        );
+
+        self.user_library.user_playlists.list = playlists_result?.items;
+        let profile_result = profile_result?;
+        self.user_library.display_name = profile_result.display_name.unwrap();
+        self.user_library.product = profile_result.product.unwrap();
+        self.user_library.user_top_tracks.list = top_tracks_result?.items;
+        self.user_library.user_top_artists.list = top_artists_result?.items;
         Ok(())
     }
 }

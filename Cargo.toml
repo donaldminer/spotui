@@ -9,6 +9,7 @@ crossterm = {version = "0.28.1", features = ["event-stream"] }
 dotenvy = "0.15.7"
 futures = "0.3.31"
 log = "0.4.27"
+open = "5.3.2"
 ratatui = "0.29.0"
 reqwest = "0.12.23"
 rouille = "3.6.2"
