@@ -12,8 +12,10 @@ use spotify_rs::{
     client::Client,
     model::{
         artist::Artist,
+        player::CurrentlyPlayingItem,
         playlist::{PlaylistItem, SimplifiedPlaylist},
         track::Track,
+        user::PrivateUser,
     },
 };
 use std::sync::{Arc, Mutex};
@@ -67,14 +69,16 @@ pub struct Playlist {
 
 #[derive(Debug, Clone)]
 pub struct UserLibrary {
-    pub display_name: String,
-    pub product: String,
     pub selected_state: ListState,
     pub directory: Directory,
     pub user_playlists: UserPlaylists,
     pub user_top_tracks: UserTopTracks,
     pub user_top_artists: UserTopArtists,
     pub playlist: Playlist,
+}
+
+pub struct Player {
+    pub currently_playing: Option<CurrentlyPlayingItem>,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]
@@ -97,6 +101,8 @@ pub struct App {
     pub events: EventHandler,
     pub spotify_client: Client<Token, AuthCodePkceFlow>,
     pub user_library: UserLibrary,
+    pub user: Option<PrivateUser>,
+    pub player: Player,
     pub route: Route,
 }
 impl App {
@@ -114,8 +120,6 @@ impl App {
             events: EventHandler::new(),
             spotify_client,
             user_library: UserLibrary {
-                display_name: String::new(),
-                product: String::new(),
                 selected_state: ListState::default(),
                 directory: Directory {
                     title: "Directory".to_string(),
@@ -146,6 +150,10 @@ impl App {
                     list: Vec::new(),
                     list_state: ListState::default(),
                 },
+            },
+            user: None,
+            player: Player {
+                currently_playing: None,
             },
             route: Route {
                 active_block: ActiveBlock::Directory,
@@ -384,7 +392,6 @@ impl App {
                 .get(spotify_client)
                 .await
         };
-
         let (playlists_result, profile_result, top_tracks_result, top_artists_result) = tokio::join!(
             get_user_playlists_future,
             get_user_profile_future,
@@ -393,11 +400,19 @@ impl App {
         );
 
         self.user_library.user_playlists.list = playlists_result?.items;
-        let profile_result = profile_result?;
-        self.user_library.display_name = profile_result.display_name.unwrap();
-        self.user_library.product = profile_result.product.unwrap();
+        self.user = Some(profile_result?);
         self.user_library.user_top_tracks.list = top_tracks_result?.items;
         self.user_library.user_top_artists.list = top_artists_result?.items;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn test_get_spotify_client() {
+        let client = App::get_spotify_client().await;
+        assert!(client.is_ok());
     }
 }
