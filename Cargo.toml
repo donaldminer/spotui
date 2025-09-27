@@ -16,3 +16,6 @@ rouille = "3.6.2"
 spotify-rs = "0.4.1"
 tokio = {version = "1.47.1", features = ["full"]}
 tui-logger = {version = "0.17.3", features = ["tracing-support"]}
+
+[dev-dependencies]
+insta = "1.43.2"

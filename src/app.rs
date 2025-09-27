@@ -12,7 +12,6 @@ use spotify_rs::{
     client::Client,
     model::{
         artist::Artist,
-        player::CurrentlyPlayingItem,
         playlist::{PlaylistItem, SimplifiedPlaylist},
         track::Track,
         user::PrivateUser,
@@ -77,10 +76,6 @@ pub struct UserLibrary {
     pub playlist: Playlist,
 }
 
-pub struct Player {
-    pub currently_playing: Option<CurrentlyPlayingItem>,
-}
-
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub enum ActiveBlock {
     Directory,
@@ -102,7 +97,6 @@ pub struct App {
     pub spotify_client: Client<Token, AuthCodePkceFlow>,
     pub user_library: UserLibrary,
     pub user: Option<PrivateUser>,
-    pub player: Player,
     pub route: Route,
 }
 impl App {
@@ -152,9 +146,6 @@ impl App {
                 },
             },
             user: None,
-            player: Player {
-                currently_playing: None,
-            },
             route: Route {
                 active_block: ActiveBlock::Directory,
                 hovered_block: ActiveBlock::UserPlaylists,
@@ -404,15 +395,5 @@ impl App {
         self.user_library.user_top_tracks.list = top_tracks_result?.items;
         self.user_library.user_top_artists.list = top_artists_result?.items;
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[tokio::test]
-    async fn test_get_spotify_client() {
-        let client = App::get_spotify_client().await;
-        assert!(client.is_ok());
     }
 }
