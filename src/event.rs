@@ -18,6 +18,7 @@ pub enum AppEvent {
     Quit,
     Select,
     Next,
+    Init,
 }
 
 /// Terminal event handler.

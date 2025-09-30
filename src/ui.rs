@@ -23,16 +23,16 @@ impl Widget for &App {
             .split(area);
 
         let directory = Directory {
-            title: self.user_library.directory.title.clone(),
-            list: self.user_library.directory.list.clone(),
-            list_state: self.user_library.directory.list_state.clone(),
+            title: self.directory.title.clone(),
+            list: self.directory.list.clone(),
+            list_state: self.directory.list_state.clone(),
             is_active: matches!(self.route.active_block, ActiveBlock::Directory),
         };
         directory.render(layout[0], buf);
         match self.route.hovered_block {
             ActiveBlock::UserPlaylists => {
                 let user_playlists = UserPlaylists {
-                    name: self.user_library.user_playlists.name.clone(),
+                    name: "User Playlists".to_string(),
                     list: self.user_library.user_playlists.list.clone(),
                     list_state: self.user_library.user_playlists.list_state.clone(),
                     is_active: matches!(self.route.active_block, ActiveBlock::UserPlaylists),
@@ -41,7 +41,7 @@ impl Widget for &App {
             }
             ActiveBlock::UserTopTracks => {
                 let top_tracks = TopTracks {
-                    name: self.user_library.user_top_tracks.name.clone(),
+                    name: "User Top Tracks".to_string(),
                     list: self.user_library.user_top_tracks.list.clone(),
                     list_state: self.user_library.user_top_tracks.list_state.clone(),
                     is_active: matches!(self.route.active_block, ActiveBlock::UserTopTracks),
@@ -50,7 +50,7 @@ impl Widget for &App {
             }
             ActiveBlock::UserTopArtists => {
                 let top_artists = TopArtists {
-                    name: self.user_library.user_top_artists.name.clone(),
+                    name: "User Top Artists".to_string(),
                     list: self.user_library.user_top_artists.list.clone(),
                     list_state: self.user_library.user_top_artists.list_state.clone(),
                     is_active: matches!(self.route.active_block, ActiveBlock::UserTopArtists),
@@ -59,9 +59,14 @@ impl Widget for &App {
             }
             ActiveBlock::Playlist => {
                 let playlist = Playlist {
-                    name: self.user_library.playlist.name.clone(),
-                    list: self.user_library.playlist.list.clone(),
-                    list_state: self.user_library.playlist.list_state.clone(),
+                    name: self
+                        .playlist
+                        .result
+                        .as_ref()
+                        .map_or("Playlist", |p| p.name.as_str())
+                        .to_string(),
+                    list: self.playlist.pages.list.clone(),
+                    list_state: self.playlist.list_state.clone(),
                     is_active: matches!(self.route.active_block, ActiveBlock::Playlist),
                 };
                 playlist.render(layout[1], buf);

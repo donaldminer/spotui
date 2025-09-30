@@ -3,7 +3,7 @@ use open;
 use ratatui::{
     DefaultTerminal,
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
-    widgets::ListState,
+    widgets::{ListItem, ListState},
 };
 use reqwest::Url;
 use rouille::{Response, Server};
@@ -11,8 +11,9 @@ use spotify_rs::{
     AuthCodePkceClient, AuthCodePkceFlow, RedirectUrl, Token,
     client::Client,
     model::{
+        Page,
         artist::Artist,
-        playlist::{PlaylistItem, SimplifiedPlaylist},
+        playlist::{Playlist, PlaylistItem, SimplifiedPlaylist},
         track::Track,
         user::PrivateUser,
     },
@@ -31,6 +32,8 @@ const SCOPES: [&str; 9] = [
     "playlist-read-collaborative",
 ];
 
+pub const DIRECTORY: [&str; 3] = ["Playlists", "Top Tracks", "Top Artists"];
+
 #[derive(Debug, Clone)]
 pub struct Directory {
     pub title: String,
@@ -39,41 +42,52 @@ pub struct Directory {
 }
 
 #[derive(Debug, Clone)]
-pub struct UserPlaylists {
-    pub name: String,
-    pub list: Vec<Option<SimplifiedPlaylist>>,
+pub struct PageEndpoint<T: Clone> {
+    pub total: usize,
+    pub page: Option<Page<T>>,
+    pub list: Vec<Option<T>>,
     pub list_state: ListState,
 }
 
-#[derive(Debug, Clone)]
-pub struct UserTopTracks {
-    pub name: String,
-    pub list: Vec<Option<Track>>,
-    pub list_state: ListState,
+impl<T> PageEndpoint<T>
+where
+    T: Clone,
+{
+    pub fn new() -> Self {
+        Self {
+            total: 0,
+            page: None,
+            list: Vec::new(),
+            list_state: ListState::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
-pub struct UserTopArtists {
-    pub name: String,
-    pub list: Vec<Option<Artist>>,
+pub struct TrackList<T, U: Clone> {
+    pub result: Option<T>,
+    pub pages: PageEndpoint<U>,
     pub list_state: ListState,
 }
 
-#[derive(Debug, Clone)]
-pub struct Playlist {
-    pub name: String,
-    pub list: Vec<Option<PlaylistItem>>,
-    pub list_state: ListState,
+impl<T, U> TrackList<T, U>
+where
+    U: Clone,
+{
+    pub fn new() -> Self {
+        Self {
+            result: None,
+            pages: PageEndpoint::new(),
+            list_state: ListState::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct UserLibrary {
-    pub selected_state: ListState,
-    pub directory: Directory,
-    pub user_playlists: UserPlaylists,
-    pub user_top_tracks: UserTopTracks,
-    pub user_top_artists: UserTopArtists,
-    pub playlist: Playlist,
+    pub user_playlists: PageEndpoint<SimplifiedPlaylist>,
+    pub user_top_tracks: PageEndpoint<Track>,
+    pub user_top_artists: PageEndpoint<Artist>,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]
@@ -96,8 +110,11 @@ pub struct App {
     pub events: EventHandler,
     pub spotify_client: Client<Token, AuthCodePkceFlow>,
     pub user_library: UserLibrary,
+    pub directory: Directory,
+    pub selected_state: ListState,
     pub user: Option<PrivateUser>,
     pub route: Route,
+    pub playlist: TrackList<Playlist, PlaylistItem>,
 }
 impl App {
     pub async fn new() -> Self {
@@ -113,43 +130,23 @@ impl App {
             running: true,
             events: EventHandler::new(),
             spotify_client,
+            selected_state: ListState::default(),
+            directory: Directory {
+                title: "Directory".to_string(),
+                list: DIRECTORY.iter().map(|&item| ListItem::new(item)).collect(),
+                list_state: ListState::default(),
+            },
             user_library: UserLibrary {
-                selected_state: ListState::default(),
-                directory: Directory {
-                    title: "Directory".to_string(),
-                    list: vec![
-                        ratatui::widgets::ListItem::new("Playlists"),
-                        ratatui::widgets::ListItem::new("Top Tracks"),
-                        ratatui::widgets::ListItem::new("Top Artists"),
-                    ],
-                    list_state: ListState::default(),
-                },
-                user_playlists: UserPlaylists {
-                    name: "My Playlists".to_string(),
-                    list: Vec::new(),
-                    list_state: ListState::default(),
-                },
-                user_top_tracks: UserTopTracks {
-                    name: "My Top Tracks".to_string(),
-                    list: Vec::new(),
-                    list_state: ListState::default(),
-                },
-                user_top_artists: UserTopArtists {
-                    name: "My Top Artists".to_string(),
-                    list: Vec::new(),
-                    list_state: ListState::default(),
-                },
-                playlist: Playlist {
-                    name: String::new(),
-                    list: Vec::new(),
-                    list_state: ListState::default(),
-                },
+                user_playlists: PageEndpoint::new(),
+                user_top_tracks: PageEndpoint::new(),
+                user_top_artists: PageEndpoint::new(),
             },
             user: None,
             route: Route {
                 active_block: ActiveBlock::Directory,
                 hovered_block: ActiveBlock::UserPlaylists,
             },
+            playlist: TrackList::new(),
         }
     }
 
@@ -213,8 +210,8 @@ impl App {
     }
 
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> color_eyre::Result<()> {
-        self.init().await?;
         terminal.clear()?;
+        self.events.send(AppEvent::Init);
         while self.running {
             terminal.draw(|frame| frame.render_widget(&self, frame.area()))?;
             match self.events.next().await? {
@@ -227,6 +224,7 @@ impl App {
                 },
                 Event::App(app_event) => match app_event {
                     AppEvent::Quit => self.quit(),
+                    AppEvent::Init => self.init().await?,
                     AppEvent::Select => self.select().await,
                     AppEvent::Next => self.next().await,
                 },
@@ -262,7 +260,7 @@ impl App {
     pub async fn select(&mut self) {
         match self.route.active_block {
             ActiveBlock::Directory => {
-                match self.user_library.directory.list_state.selected() {
+                match self.directory.list_state.selected() {
                     Some(0) => self.route.active_block = ActiveBlock::UserPlaylists,
                     Some(1) => self.route.active_block = ActiveBlock::UserTopTracks,
                     Some(2) => self.route.active_block = ActiveBlock::UserTopArtists,
@@ -284,22 +282,23 @@ impl App {
                         .await
                         .unwrap();
 
-                        self.user_library.playlist.name = playlist.name.clone();
-                        self.user_library.playlist.list = playlist.tracks.items;
-                        self.user_library.playlist.list_state = ListState::default();
+                        self.playlist.result = Some(playlist.clone());
+                        self.playlist.pages.list = playlist.tracks.items;
+                        self.playlist.pages.total = usize::try_from(playlist.tracks.total).unwrap();
+                        self.playlist.pages.list_state.select(Some(0));
                     }
                     _ => {}
                 }
                 self.route.active_block = ActiveBlock::Playlist;
                 self.route.hovered_block = ActiveBlock::Playlist;
             }
-            ActiveBlock::UserTopTracks => match self.user_library.selected_state.selected() {
+            ActiveBlock::UserTopTracks => match self.selected_state.selected() {
                 _ => todo!(),
             },
-            ActiveBlock::UserTopArtists => match self.user_library.selected_state.selected() {
+            ActiveBlock::UserTopArtists => match self.selected_state.selected() {
                 _ => todo!(),
             },
-            ActiveBlock::Playlist => match self.user_library.selected_state.selected() {
+            ActiveBlock::Playlist => match self.selected_state.selected() {
                 _ => todo!(),
             },
         };
@@ -308,7 +307,7 @@ impl App {
     pub fn up(&mut self) {
         match self.route.active_block {
             ActiveBlock::Directory => {
-                self.user_library.directory.list_state.select_previous();
+                self.directory.list_state.select_previous();
             }
             ActiveBlock::UserPlaylists => {
                 self.user_library
@@ -329,7 +328,10 @@ impl App {
                     .select_previous();
             }
             ActiveBlock::Playlist => {
-                self.user_library.playlist.list_state.select_previous();
+                if self.playlist.pages.list.is_empty() {
+                    return;
+                }
+                self.playlist.list_state.select_previous();
             }
         }
     }
@@ -337,19 +339,38 @@ impl App {
     pub fn down(&mut self) {
         match self.route.active_block {
             ActiveBlock::Directory => {
-                self.user_library.directory.list_state.select_next();
+                if self.directory.list_state.selected() <= Some(DIRECTORY.len() - 2) {
+                    self.directory.list_state.select_next();
+                }
             }
             ActiveBlock::UserPlaylists => {
-                self.user_library.user_playlists.list_state.select_next();
+                if self.user_library.user_playlists.list_state.selected()
+                    <= Some(self.user_library.user_playlists.total - 2)
+                {
+                    self.user_library.user_playlists.list_state.select_next();
+                }
             }
             ActiveBlock::UserTopTracks => {
-                self.user_library.user_top_tracks.list_state.select_next();
+                if self.user_library.user_top_tracks.list_state.selected()
+                    <= Some(self.user_library.user_top_tracks.total - 2)
+                {
+                    self.user_library.user_top_tracks.list_state.select_next();
+                }
             }
             ActiveBlock::UserTopArtists => {
-                self.user_library.user_top_artists.list_state.select_next();
+                if self.user_library.user_top_artists.list_state.selected()
+                    <= Some(self.user_library.user_top_artists.total - 2)
+                {
+                    self.user_library.user_top_artists.list_state.select_next();
+                }
             }
             ActiveBlock::Playlist => {
-                self.user_library.playlist.list_state.select_next();
+                if self.playlist.pages.list.is_empty() {
+                    return;
+                }
+                if self.playlist.list_state.selected() <= Some(self.playlist.pages.total - 2) {
+                    self.playlist.list_state.select_next();
+                }
             }
         }
     }
@@ -362,38 +383,29 @@ impl App {
 
     pub async fn init(&mut self) -> color_eyre::Result<()> {
         let spotify_client = &self.spotify_client;
+        self.user = Some(spotify_rs::get_current_user_profile(spotify_client).await?);
 
-        let get_user_playlists_future = async {
-            spotify_rs::current_user_playlists()
-                .get(spotify_client)
-                .await
-        };
+        let playlists = spotify_rs::current_user_playlists()
+            .get(spotify_client)
+            .await?;
+        self.user_library.user_playlists.page = Some(playlists.clone());
+        self.user_library.user_playlists.total = usize::try_from(playlists.total)?;
+        self.user_library.user_playlists.list = playlists.items;
 
-        let get_user_profile_future =
-            async { spotify_rs::get_current_user_profile(spotify_client).await };
+        let top_tracks = spotify_rs::current_user_top_tracks()
+            .get(spotify_client)
+            .await?;
+        self.user_library.user_top_tracks.page = Some(top_tracks.clone());
+        self.user_library.user_top_tracks.total = usize::try_from(top_tracks.total)?;
+        self.user_library.user_top_tracks.list = top_tracks.items;
 
-        let get_user_top_tracks_future = async {
-            spotify_rs::current_user_top_tracks()
-                .get(spotify_client)
-                .await
-        };
+        let top_artists = spotify_rs::current_user_top_artists()
+            .get(spotify_client)
+            .await?;
+        self.user_library.user_top_artists.page = Some(top_artists.clone());
+        self.user_library.user_top_artists.total = usize::try_from(top_artists.total)?;
+        self.user_library.user_top_artists.list = top_artists.items;
 
-        let get_user_top_artists_future = async {
-            spotify_rs::current_user_top_artists()
-                .get(spotify_client)
-                .await
-        };
-        let (playlists_result, profile_result, top_tracks_result, top_artists_result) = tokio::join!(
-            get_user_playlists_future,
-            get_user_profile_future,
-            get_user_top_tracks_future,
-            get_user_top_artists_future,
-        );
-
-        self.user_library.user_playlists.list = playlists_result?.items;
-        self.user = Some(profile_result?);
-        self.user_library.user_top_tracks.list = top_tracks_result?.items;
-        self.user_library.user_top_artists.list = top_artists_result?.items;
         Ok(())
     }
 }
