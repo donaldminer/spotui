@@ -3,6 +3,7 @@ use crate::widgets::{
     directory::Directory, playlist::Playlist, top_artists::TopArtists, top_tracks::TopTracks,
     user_playlists::UserPlaylists,
 };
+use ratatui::layout::Constraint;
 use ratatui::{
     buffer::Buffer,
     layout::{Direction, Layout, Rect},
@@ -11,25 +12,34 @@ use ratatui::{
 
 impl Widget for &App {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let layout = Layout::default()
-            .direction(Direction::Horizontal)
-            .margin(1)
-            .constraints(
-                [
-                    ratatui::layout::Constraint::Percentage(20),
-                    ratatui::layout::Constraint::Percentage(80),
-                ]
-                .as_ref(),
-            )
-            .split(area);
+        let main_layout = Layout::new(
+            Direction::Vertical,
+            [Constraint::Percentage(20), Constraint::Percentage(80)],
+        )
+        .margin(0)
+        .split(area);
 
+        self.render_main_content(main_layout[1], buf);
+    }
+}
+
+impl App {
+    fn render_main_content(&self, area: Rect, buf: &mut Buffer) {
+        let content_layout = Layout::new(
+            Direction::Horizontal,
+            [Constraint::Percentage(20), Constraint::Percentage(80)],
+        )
+        .margin(1)
+        .split(area);
         let directory = Directory {
             title: self.directory.title.clone(),
             list: self.directory.list.clone(),
             list_state: self.directory.list_state.clone(),
             is_active: matches!(self.route.active_block, ActiveBlock::Directory),
         };
-        directory.render(layout[0], buf);
+
+        directory.render(content_layout[0], buf);
+
         match self.route.hovered_block {
             ActiveBlock::UserPlaylists => {
                 let user_playlists = UserPlaylists {
@@ -38,7 +48,7 @@ impl Widget for &App {
                     list_state: self.user_library.user_playlists.list_state.clone(),
                     is_active: matches!(self.route.active_block, ActiveBlock::UserPlaylists),
                 };
-                user_playlists.render(layout[1], buf);
+                user_playlists.render(content_layout[1], buf);
             }
             ActiveBlock::UserTopTracks => {
                 let top_tracks = TopTracks {
@@ -47,7 +57,7 @@ impl Widget for &App {
                     list_state: self.user_library.user_top_tracks.list_state.clone(),
                     is_active: matches!(self.route.active_block, ActiveBlock::UserTopTracks),
                 };
-                top_tracks.render(layout[1], buf);
+                top_tracks.render(content_layout[1], buf);
             }
             ActiveBlock::UserTopArtists => {
                 let top_artists = TopArtists {
@@ -56,7 +66,7 @@ impl Widget for &App {
                     list_state: self.user_library.user_top_artists.list_state.clone(),
                     is_active: matches!(self.route.active_block, ActiveBlock::UserTopArtists),
                 };
-                top_artists.render(layout[1], buf);
+                top_artists.render(content_layout[1], buf);
             }
             ActiveBlock::Playlist => {
                 let playlist = Playlist {
@@ -70,7 +80,7 @@ impl Widget for &App {
                     list_state: self.playlist.list_state.clone(),
                     is_active: matches!(self.route.active_block, ActiveBlock::Playlist),
                 };
-                playlist.render(layout[1], buf);
+                playlist.render(content_layout[1], buf);
             }
             _ => { /* Do nothing */ }
         }
