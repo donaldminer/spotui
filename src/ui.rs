@@ -8,6 +8,7 @@ use ratatui::{
     layout::{Direction, Layout, Rect},
     widgets::Widget,
 };
+
 impl Widget for &App {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let layout = Layout::default()
