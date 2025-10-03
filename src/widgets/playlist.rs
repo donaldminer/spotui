@@ -1,18 +1,32 @@
-use crate::widgets::list::ListWidget;
+use crate::{app::TrackList, widgets::list::ListWidget};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
     widgets::{ListItem, Widget},
 };
-use spotify_rs::model::{PlayableItem, playlist::PlaylistItem};
+use spotify_rs::model::{PlayableItem, playlist::Playlist, playlist::PlaylistItem};
 
-pub struct Playlist {
+pub struct PlaylistWidget {
     pub name: String,
     pub list: Vec<Option<PlaylistItem>>,
     pub list_state: ratatui::widgets::ListState,
     pub is_active: bool,
 }
-impl Widget for Playlist {
+impl PlaylistWidget {
+    pub fn new(playlist: TrackList<Playlist, PlaylistItem>, active: bool) -> Self {
+        Self {
+            name: playlist
+                .result
+                .as_ref()
+                .map_or("Playlist", |p| p.name.as_str())
+                .to_string(),
+            list: playlist.pages.list,
+            list_state: playlist.list_state,
+            is_active: active,
+        }
+    }
+}
+impl Widget for PlaylistWidget {
     fn render(self, area: Rect, buf: &mut Buffer) {
         if self.list.is_empty() {
             let empty_block = ratatui::widgets::Block::default()

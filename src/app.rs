@@ -97,6 +97,7 @@ pub enum ActiveBlock {
     UserTopTracks,
     UserTopArtists,
     Playlist,
+    Artist,
 }
 
 #[derive(Debug)]
@@ -285,22 +286,27 @@ impl App {
                         self.playlist.result = Some(playlist.clone());
                         self.playlist.pages.list = playlist.tracks.items;
                         self.playlist.pages.total = usize::try_from(playlist.tracks.total).unwrap();
-                        self.playlist.pages.list_state.select(Some(0));
+                        self.playlist.list_state = ListState::default();
                     }
                     _ => {}
                 }
                 self.route.active_block = ActiveBlock::Playlist;
                 self.route.hovered_block = ActiveBlock::Playlist;
             }
+            //TODO: Implement Track Selection
             ActiveBlock::UserTopTracks => match self.selected_state.selected() {
-                _ => todo!(),
+                _ => log::info!("Track selected"),
             },
+            //TODO: Implement Artist Selection
             ActiveBlock::UserTopArtists => match self.selected_state.selected() {
-                _ => todo!(),
+                _ => log::info!("Artist selected"),
             },
+            //TODO: Implement Track Selection
             ActiveBlock::Playlist => match self.selected_state.selected() {
-                _ => todo!(),
+                _ => log::info!("Track selected"),
             },
+            //TODO: Implement Artist block
+            ActiveBlock::Artist => { /* Not implemented yet */ }
         };
     }
 
@@ -333,6 +339,8 @@ impl App {
                 }
                 self.playlist.list_state.select_previous();
             }
+            //TODO: Implement Artist block
+            ActiveBlock::Artist => { /* Not implemented yet */ }
         }
     }
 
@@ -372,6 +380,8 @@ impl App {
                     self.playlist.list_state.select_next();
                 }
             }
+            //TODO: Implement Artist block
+            ActiveBlock::Artist => { /* Not implemented yet */ }
         }
     }
 
