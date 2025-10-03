@@ -22,13 +22,33 @@ impl Widget for &App {
             )
             .split(area);
 
+        let sidebar = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(
+                [
+                    ratatui::layout::Constraint::Percentage(50),
+                    ratatui::layout::Constraint::Percentage(50),
+                ]
+                .as_ref(),
+            )
+            .split(layout[0]);
+
         let directory = Directory {
             title: self.directory.title.clone(),
             list: self.directory.list.clone(),
             list_state: self.directory.list_state.clone(),
             is_active: matches!(self.route.active_block, ActiveBlock::Directory),
         };
-        directory.render(layout[0], buf);
+        directory.render(sidebar[0], buf);
+
+        let library = Directory {
+            title: self.library.title.clone(),
+            list: self.library.list.clone(),
+            list_state: self.library.list_state.clone(),
+            is_active: matches!(self.route.active_block, ActiveBlock::Library),
+        };
+        library.render(sidebar[1], buf);
+
         match self.route.hovered_block {
             ActiveBlock::UserPlaylists => {
                 let user_playlists = UserPlaylists {

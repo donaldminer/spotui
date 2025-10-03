@@ -1,4 +1,5 @@
 use crate::event::{AppEvent, Event, EventHandler};
+
 use open;
 use ratatui::{
     DefaultTerminal,
@@ -32,12 +33,21 @@ const SCOPES: [&str; 9] = [
     "playlist-read-collaborative",
 ];
 
-pub const DIRECTORY: [&str; 3] = ["Playlists", "Top Tracks", "Top Artists"];
+pub const LIBRARY: [&str; 4] = ["User Playlists", "Top Tracks", "Top Artists", "Liked Songs"];
+
+pub const DIRECTORY: [&str; 3] = ["Library", "Search", "Profile"];
+
+#[derive(Debug, Clone)]
+pub struct Library {
+    pub title: String,
+    pub list: Vec<ListItem<'static>>,
+    pub list_state: ListState,
+}
 
 #[derive(Debug, Clone)]
 pub struct Directory {
     pub title: String,
-    pub list: Vec<ratatui::widgets::ListItem<'static>>,
+    pub list: Vec<ListItem<'static>>,
     pub list_state: ListState,
 }
 
@@ -93,6 +103,9 @@ pub struct UserLibrary {
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub enum ActiveBlock {
     Directory,
+    Library,
+    Search,
+    Profile,
     UserPlaylists,
     UserTopTracks,
     UserTopArtists,
@@ -103,6 +116,7 @@ pub enum ActiveBlock {
 pub struct Route {
     pub active_block: ActiveBlock,
     pub hovered_block: ActiveBlock,
+    pub previous_block: ActiveBlock,
 }
 
 pub struct App {
@@ -111,6 +125,7 @@ pub struct App {
     pub spotify_client: Client<Token, AuthCodePkceFlow>,
     pub user_library: UserLibrary,
     pub directory: Directory,
+    pub library: Library,
     pub selected_state: ListState,
     pub user: Option<PrivateUser>,
     pub route: Route,
@@ -131,6 +146,11 @@ impl App {
             events: EventHandler::new(),
             spotify_client,
             selected_state: ListState::default(),
+            library: Library {
+                title: "Directory".to_string(),
+                list: LIBRARY.iter().map(|&item| ListItem::new(item)).collect(),
+                list_state: ListState::default(),
+            },
             directory: Directory {
                 title: "Directory".to_string(),
                 list: DIRECTORY.iter().map(|&item| ListItem::new(item)).collect(),
@@ -144,7 +164,8 @@ impl App {
             user: None,
             route: Route {
                 active_block: ActiveBlock::Directory,
-                hovered_block: ActiveBlock::UserPlaylists,
+                hovered_block: ActiveBlock::Library,
+                previous_block: ActiveBlock::Directory,
             },
             playlist: TrackList::new(),
         }
@@ -252,21 +273,30 @@ impl App {
 
     pub async fn next(&mut self) {
         self.route.active_block = match self.route.active_block {
-            ActiveBlock::Directory => self.route.hovered_block,
-            _ => ActiveBlock::Directory,
+            ActiveBlock::Directory => ActiveBlock::Library,
+            ActiveBlock::Library => ActiveBlock::Directory,
+            _ => self.route.previous_block,
         };
     }
 
     pub async fn select(&mut self) {
+        self.route.previous_block = self.route.active_block;
         match self.route.active_block {
             ActiveBlock::Directory => {
                 match self.directory.list_state.selected() {
+                    Some(0) => self.route.active_block = ActiveBlock::Library,
+                    Some(1) => self.route.active_block = ActiveBlock::Search,
+                    Some(2) => self.route.active_block = ActiveBlock::Profile,
+                    _ => {}
+                };
+            }
+            ActiveBlock::Library => {
+                match self.library.list_state.selected() {
                     Some(0) => self.route.active_block = ActiveBlock::UserPlaylists,
                     Some(1) => self.route.active_block = ActiveBlock::UserTopTracks,
                     Some(2) => self.route.active_block = ActiveBlock::UserTopArtists,
                     _ => {}
-                }
-                self.route.hovered_block = self.route.active_block
+                };
             }
             ActiveBlock::UserPlaylists => {
                 match self.user_library.user_playlists.list_state.selected() {
@@ -290,24 +320,19 @@ impl App {
                     _ => {}
                 }
                 self.route.active_block = ActiveBlock::Playlist;
-                self.route.hovered_block = ActiveBlock::Playlist;
             }
-            ActiveBlock::UserTopTracks => match self.selected_state.selected() {
-                _ => todo!(),
-            },
-            ActiveBlock::UserTopArtists => match self.selected_state.selected() {
-                _ => todo!(),
-            },
-            ActiveBlock::Playlist => match self.selected_state.selected() {
-                _ => todo!(),
-            },
+            _ => {}
         };
+        self.route.hovered_block = self.route.active_block;
     }
 
     pub fn up(&mut self) {
         match self.route.active_block {
             ActiveBlock::Directory => {
                 self.directory.list_state.select_previous();
+            }
+            ActiveBlock::Library => {
+                self.library.list_state.select_previous();
             }
             ActiveBlock::UserPlaylists => {
                 self.user_library
@@ -333,6 +358,7 @@ impl App {
                 }
                 self.playlist.list_state.select_previous();
             }
+            _ => {}
         }
     }
 
@@ -341,6 +367,11 @@ impl App {
             ActiveBlock::Directory => {
                 if self.directory.list_state.selected() <= Some(DIRECTORY.len() - 2) {
                     self.directory.list_state.select_next();
+                }
+            }
+            ActiveBlock::Library => {
+                if self.library.list_state.selected() <= Some(LIBRARY.len() - 2) {
+                    self.library.list_state.select_next();
                 }
             }
             ActiveBlock::UserPlaylists => {
@@ -372,6 +403,7 @@ impl App {
                     self.playlist.list_state.select_next();
                 }
             }
+            _ => {}
         }
     }
 
