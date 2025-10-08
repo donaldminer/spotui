@@ -1,4 +1,4 @@
-use crate::widgets::list::ListWidget;
+use crate::{app::PageEndpoint, widgets::list::ListWidget};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -6,13 +6,24 @@ use ratatui::{
 };
 use spotify_rs::model::artist::Artist;
 
-pub struct TopArtists {
+pub struct TopArtistsWidget {
     pub name: String,
     pub list: Vec<Option<Artist>>,
     pub list_state: ratatui::widgets::ListState,
     pub is_active: bool,
 }
-impl Widget for TopArtists {
+
+impl TopArtistsWidget {
+    pub fn new(top_artists: PageEndpoint<Artist>, active: bool) -> Self {
+        Self {
+            name: "User Top Artists".to_string(),
+            list: top_artists.list,
+            list_state: top_artists.list_state,
+            is_active: active,
+        }
+    }
+}
+impl Widget for TopArtistsWidget {
     fn render(self, area: Rect, buf: &mut Buffer) {
         if self.list.is_empty() {
             let empty_block = ratatui::widgets::Block::default()

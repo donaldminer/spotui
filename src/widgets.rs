@@ -1,4 +1,3 @@
-pub mod current_user;
 pub mod directory;
 pub mod list;
 pub mod playlist;

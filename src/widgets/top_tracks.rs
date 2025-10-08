@@ -1,4 +1,4 @@
-use crate::widgets::list::ListWidget;
+use crate::{app::PageEndpoint, widgets::list::ListWidget};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -6,13 +6,25 @@ use ratatui::{
 };
 use spotify_rs::model::track::Track;
 
-pub struct TopTracks {
+pub struct TopTracksWidget {
     pub name: String,
     pub list: Vec<Option<Track>>,
     pub list_state: ratatui::widgets::ListState,
     pub is_active: bool,
 }
-impl Widget for TopTracks {
+
+impl TopTracksWidget {
+    pub fn new(top_tracks: PageEndpoint<Track>, active: bool) -> Self {
+        Self {
+            name: "User Top Tracks".to_string(),
+            list: top_tracks.list,
+            list_state: top_tracks.list_state,
+            is_active: active,
+        }
+    }
+}
+
+impl Widget for TopTracksWidget {
     fn render(self, area: Rect, buf: &mut Buffer) {
         if self.list.is_empty() {
             let empty_block = ratatui::widgets::Block::default()
