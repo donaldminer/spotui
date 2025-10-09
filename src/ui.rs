@@ -1,6 +1,6 @@
 use crate::app::{ActiveBlock, App};
 use crate::widgets::{
-    directory::Directory, playlist::PlaylistWidget, top_artists::TopArtistsWidget,
+    nav_list::NavList, playlist::PlaylistWidget, top_artists::TopArtistsWidget,
     top_tracks::TopTracksWidget, user_playlists::UserPlaylistsWidget,
 };
 use ratatui::layout::Constraint;
@@ -31,7 +31,7 @@ impl App {
         )
         .margin(1)
         .split(area);
-        let directory = Directory {
+        let directory = NavList {
             title: self.directory.title.clone(),
             list: self.directory.list.clone(),
             list_state: self.directory.list_state.clone(),
@@ -39,7 +39,6 @@ impl App {
         };
 
         directory.render(content_layout[0], buf);
-
         match self.route.hovered_block {
             ActiveBlock::UserPlaylists => {
                 let user_playlists = UserPlaylistsWidget::new(
@@ -70,6 +69,24 @@ impl App {
                 playlist.render(content_layout[1], buf);
             }
             _ => { /* Do nothing */ }
+        }
+
+        // TODO: Get Popup to render on top of contnent block, ideally centered
+        if matches!(self.route.active_block, ActiveBlock::Popup) {
+            let popup_block = NavList {
+                title: self.popup.title.clone(),
+                list: self.popup.list.clone(),
+                list_state: self.popup.list_state.clone(),
+                is_active: matches!(self.route.active_block, ActiveBlock::Popup),
+            };
+            let popup_area = Rect {
+                x: area.x + area.width / 4,
+                y: area.y + area.height / 4,
+                width: area.width / 2,
+                height: area.height / 2,
+            };
+
+            popup_block.render(popup_area, buf);
         }
     }
 }

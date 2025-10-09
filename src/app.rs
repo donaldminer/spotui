@@ -33,9 +33,10 @@ const SCOPES: [&str; 9] = [
 ];
 
 pub const DIRECTORY: [&str; 3] = ["Playlists", "Top Tracks", "Top Artists"];
+pub const TRACK_OPTIONS: [&str; 4] = ["Play", "Add to Queue", "Go to Artist", "Go to Album"];
 
 #[derive(Debug, Clone)]
-pub struct Directory {
+pub struct NavList {
     pub title: String,
     pub list: Vec<ratatui::widgets::ListItem<'static>>,
     pub list_state: ListState,
@@ -98,6 +99,7 @@ pub enum ActiveBlock {
     UserTopArtists,
     Playlist,
     Artist,
+    Popup,
 }
 
 #[derive(Debug)]
@@ -111,11 +113,12 @@ pub struct App {
     pub events: EventHandler,
     pub spotify_client: Client<Token, AuthCodePkceFlow>,
     pub user_library: UserLibrary,
-    pub directory: Directory,
+    pub directory: NavList,
     pub selected_state: ListState,
     pub user: Option<PrivateUser>,
     pub route: Route,
     pub playlist: TrackList<Playlist, PlaylistItem>,
+    pub popup: NavList,
 }
 impl App {
     pub async fn new() -> Self {
@@ -132,7 +135,7 @@ impl App {
             events: EventHandler::new(),
             spotify_client,
             selected_state: ListState::default(),
-            directory: Directory {
+            directory: NavList {
                 title: "Directory".to_string(),
                 list: DIRECTORY.iter().map(|&item| ListItem::new(item)).collect(),
                 list_state: ListState::default(),
@@ -148,6 +151,14 @@ impl App {
                 hovered_block: ActiveBlock::UserPlaylists,
             },
             playlist: TrackList::new(),
+            popup: NavList {
+                title: "Options".to_string(),
+                list: TRACK_OPTIONS
+                    .iter()
+                    .map(|&item| ListItem::new(item))
+                    .collect(),
+                list_state: ListState::default(),
+            },
         }
     }
 
@@ -295,6 +306,17 @@ impl App {
             }
             //TODO: Implement Track Selection
             ActiveBlock::UserTopTracks => match self.selected_state.selected() {
+                Some(i) => {
+                    self.popup.list_state.select(Some(0));
+                    self.route.active_block = ActiveBlock::Popup;
+                    log::info!(
+                        "Track selected: {}",
+                        self.user_library.user_top_tracks.list[i]
+                            .as_ref()
+                            .unwrap()
+                            .name
+                    );
+                }
                 _ => log::info!("Track selected"),
             },
             //TODO: Implement Artist Selection
@@ -303,10 +325,19 @@ impl App {
             },
             //TODO: Implement Track Selection
             ActiveBlock::Playlist => match self.selected_state.selected() {
+                Some(i) => {
+                    self.popup.list_state.select(Some(0));
+                    self.route.active_block = ActiveBlock::Popup;
+                    log::info!(
+                        "Track selected: {:#?}",
+                        self.playlist.pages.list[i].as_ref().unwrap().track
+                    );
+                }
                 _ => log::info!("Track selected"),
             },
             //TODO: Implement Artist block
             ActiveBlock::Artist => { /* Not implemented yet */ }
+            ActiveBlock::Popup => self.route.active_block = self.route.hovered_block,
         };
     }
 
@@ -341,6 +372,9 @@ impl App {
             }
             //TODO: Implement Artist block
             ActiveBlock::Artist => { /* Not implemented yet */ }
+            ActiveBlock::Popup => {
+                self.popup.list_state.select_previous();
+            }
         }
     }
 
@@ -382,6 +416,11 @@ impl App {
             }
             //TODO: Implement Artist block
             ActiveBlock::Artist => { /* Not implemented yet */ }
+            ActiveBlock::Popup => {
+                if self.popup.list_state.selected() <= Some(self.popup.list.len() - 2) {
+                    self.popup.list_state.select_next();
+                }
+            }
         }
     }
 
