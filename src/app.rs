@@ -118,7 +118,7 @@ pub struct App {
     pub user: Option<PrivateUser>,
     pub route: Route,
     pub playlist: TrackList<Playlist, PlaylistItem>,
-    pub popup: NavList,
+    pub track_popup: NavList,
 }
 impl App {
     pub async fn new() -> Self {
@@ -151,7 +151,7 @@ impl App {
                 hovered_block: ActiveBlock::UserPlaylists,
             },
             playlist: TrackList::new(),
-            popup: NavList {
+            track_popup: NavList {
                 title: "Options".to_string(),
                 list: TRACK_OPTIONS
                     .iter()
@@ -264,7 +264,7 @@ impl App {
 
     pub async fn next(&mut self) {
         self.route.active_block = match self.route.active_block {
-            ActiveBlock::Directory => self.route.hovered_block,
+            ActiveBlock::Directory | ActiveBlock::Popup => self.route.hovered_block,
             _ => ActiveBlock::Directory,
         };
     }
@@ -305,28 +305,30 @@ impl App {
                 self.route.hovered_block = ActiveBlock::Playlist;
             }
             //TODO: Implement Track Selection
-            ActiveBlock::UserTopTracks => match self.selected_state.selected() {
-                Some(i) => {
-                    self.popup.list_state.select(Some(0));
-                    self.route.active_block = ActiveBlock::Popup;
-                    log::info!(
-                        "Track selected: {}",
-                        self.user_library.user_top_tracks.list[i]
-                            .as_ref()
-                            .unwrap()
-                            .name
-                    );
+            ActiveBlock::UserTopTracks => {
+                match self.user_library.user_top_tracks.list_state.selected() {
+                    Some(i) => {
+                        self.track_popup.list_state.select(Some(0));
+                        self.route.active_block = ActiveBlock::Popup;
+                        log::info!(
+                            "Track selected: {}",
+                            self.user_library.user_top_tracks.list[i]
+                                .as_ref()
+                                .unwrap()
+                                .name
+                        );
+                    }
+                    _ => log::info!("Track selected"),
                 }
-                _ => log::info!("Track selected"),
-            },
+            }
             //TODO: Implement Artist Selection
             ActiveBlock::UserTopArtists => match self.selected_state.selected() {
                 _ => log::info!("Artist selected"),
             },
             //TODO: Implement Track Selection
-            ActiveBlock::Playlist => match self.selected_state.selected() {
+            ActiveBlock::Playlist => match self.playlist.list_state.selected() {
                 Some(i) => {
-                    self.popup.list_state.select(Some(0));
+                    self.track_popup.list_state.select(Some(0));
                     self.route.active_block = ActiveBlock::Popup;
                     log::info!(
                         "Track selected: {:#?}",
@@ -337,7 +339,9 @@ impl App {
             },
             //TODO: Implement Artist block
             ActiveBlock::Artist => { /* Not implemented yet */ }
-            ActiveBlock::Popup => self.route.active_block = self.route.hovered_block,
+            ActiveBlock::Popup => {
+                self.route.active_block = self.route.hovered_block;
+            }
         };
     }
 
@@ -373,7 +377,7 @@ impl App {
             //TODO: Implement Artist block
             ActiveBlock::Artist => { /* Not implemented yet */ }
             ActiveBlock::Popup => {
-                self.popup.list_state.select_previous();
+                self.track_popup.list_state.select_previous();
             }
         }
     }
@@ -417,8 +421,8 @@ impl App {
             //TODO: Implement Artist block
             ActiveBlock::Artist => { /* Not implemented yet */ }
             ActiveBlock::Popup => {
-                if self.popup.list_state.selected() <= Some(self.popup.list.len() - 2) {
-                    self.popup.list_state.select_next();
+                if self.track_popup.list_state.selected() <= Some(self.track_popup.list.len() - 2) {
+                    self.track_popup.list_state.select_next();
                 }
             }
         }
