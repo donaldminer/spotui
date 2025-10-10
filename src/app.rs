@@ -19,6 +19,7 @@ use spotify_rs::{
     },
 };
 use std::sync::{Arc, Mutex};
+use tui_logger::TuiWidgetState;
 
 const SCOPES: [&str; 9] = [
     "user-top-read",
@@ -100,6 +101,7 @@ pub enum ActiveBlock {
     Playlist,
     Artist,
     Popup,
+    Logger,
 }
 
 #[derive(Debug)]
@@ -119,6 +121,7 @@ pub struct App {
     pub route: Route,
     pub playlist: TrackList<Playlist, PlaylistItem>,
     pub track_popup: NavList,
+    pub logger_state: TuiWidgetState,
 }
 impl App {
     pub async fn new() -> Self {
@@ -159,6 +162,7 @@ impl App {
                     .collect(),
                 list_state: ListState::default(),
             },
+            logger_state: TuiWidgetState::default(),
         }
     }
 
@@ -226,6 +230,7 @@ impl App {
         self.events.send(AppEvent::Init);
         while self.running {
             terminal.draw(|frame| frame.render_widget(&self, frame.area()))?;
+
             match self.events.next().await? {
                 Event::Tick => self.tick(),
                 Event::Crossterm(event) => match event {
@@ -256,6 +261,7 @@ impl App {
             KeyCode::Down | KeyCode::Char('j') => self.down(),
             KeyCode::Left | KeyCode::Char('h') => {}
             KeyCode::Right | KeyCode::Char('l') => {}
+            KeyCode::Char('t') => self.route.active_block = ActiveBlock::Logger,
             KeyCode::Enter => self.events.send(AppEvent::Select),
             _ => {}
         }
@@ -298,6 +304,13 @@ impl App {
                         self.playlist.pages.list = playlist.tracks.items;
                         self.playlist.pages.total = usize::try_from(playlist.tracks.total).unwrap();
                         self.playlist.list_state = ListState::default();
+                        log::info!(
+                            "Playlist selected: {}",
+                            self.user_library.user_playlists.list[i]
+                                .as_ref()
+                                .unwrap()
+                                .name
+                        );
                     }
                     _ => {}
                 }
@@ -338,10 +351,17 @@ impl App {
                 _ => log::info!("Track selected"),
             },
             //TODO: Implement Artist block
-            ActiveBlock::Artist => { /* Not implemented yet */ }
+            ActiveBlock::Artist => {
+                log::info!("Artist block selected");
+            }
             ActiveBlock::Popup => {
+                log::info!(
+                    "Option selected: {}",
+                    TRACK_OPTIONS[self.track_popup.list_state.selected().unwrap()]
+                );
                 self.route.active_block = self.route.hovered_block;
             }
+            _ => { /* Do nothing */ }
         };
     }
 
@@ -378,6 +398,10 @@ impl App {
             ActiveBlock::Artist => { /* Not implemented yet */ }
             ActiveBlock::Popup => {
                 self.track_popup.list_state.select_previous();
+            }
+            ActiveBlock::Logger => {
+                self.logger_state
+                    .transition(tui_logger::TuiWidgetEvent::PrevPageKey);
             }
         }
     }
@@ -424,6 +448,10 @@ impl App {
                 if self.track_popup.list_state.selected() <= Some(self.track_popup.list.len() - 2) {
                     self.track_popup.list_state.select_next();
                 }
+            }
+            ActiveBlock::Logger => {
+                self.logger_state
+                    .transition(tui_logger::TuiWidgetEvent::NextPageKey);
             }
         }
     }
