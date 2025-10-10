@@ -3,28 +3,34 @@ use crate::widgets::{
     nav_list::NavList, playlist::PlaylistWidget, top_artists::TopArtistsWidget,
     top_tracks::TopTracksWidget, user_playlists::UserPlaylistsWidget,
 };
-use ratatui::layout::Constraint;
 use ratatui::{
     buffer::Buffer,
-    layout::{Direction, Layout, Rect},
-    widgets::{Clear, Widget},
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Style},
+    widgets::{Block, Clear, Widget},
 };
+use tui_logger::{TuiLoggerLevelOutput, TuiLoggerWidget};
 
 impl Widget for &App {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let main_layout = Layout::new(
             Direction::Vertical,
-            [Constraint::Percentage(20), Constraint::Percentage(80)],
+            [Constraint::Percentage(10), Constraint::Percentage(90)],
         )
         .margin(0)
         .split(area);
 
         let content_layout = Layout::new(
             Direction::Horizontal,
-            [Constraint::Percentage(20), Constraint::Percentage(80)],
+            [
+                Constraint::Percentage(20),
+                Constraint::Percentage(40),
+                Constraint::Percentage(40),
+            ],
         )
         .margin(1)
         .split(main_layout[1]);
+        self.render_logger(content_layout[2], buf);
         self.render_directory(content_layout[0], buf);
         self.render_main_content(content_layout[1], buf);
         if matches!(self.route.active_block, ActiveBlock::Popup) {
@@ -34,6 +40,25 @@ impl Widget for &App {
 }
 
 impl App {
+    fn render_logger(&self, area: Rect, buf: &mut Buffer) {
+        let state = &self.logger_state;
+
+        TuiLoggerWidget::default()
+            .block(Block::bordered().title("Logs"))
+            .style(Style::default().fg(Color::White))
+            .style_debug(Style::default().fg(Color::Green))
+            .style_error(Style::default().fg(Color::Red))
+            .style_warn(Style::default().fg(Color::Yellow))
+            .output_separator('|')
+            .output_timestamp(Some("%Y-%m-%d %H:%M:%S".to_string()))
+            .output_level(Some(TuiLoggerLevelOutput::Abbreviated))
+            .output_target(true)
+            .output_file(false)
+            .output_line(false)
+            .state(&state)
+            .render(area, buf);
+    }
+
     fn render_track_popup(&self, area: Rect, buf: &mut Buffer) {
         let popup_block = NavList {
             title: self.track_popup.title.clone(),
