@@ -1,4 +1,4 @@
-use crate::app::{ActiveBlock, App};
+use crate::app::{ActiveBlock, App, SelectedTab};
 use crate::widgets::{
     nav_list::NavList, playlist::PlaylistWidget, top_artists::TopArtistsWidget,
     top_tracks::TopTracksWidget, user_playlists::UserPlaylistsWidget,
@@ -7,7 +7,7 @@ use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
-    widgets::{Block, Clear, Widget},
+    widgets::{Block, Clear, Tabs, Widget},
 };
 use tui_logger::{TuiLoggerLevelOutput, TuiLoggerWidget};
 
@@ -22,24 +22,45 @@ impl Widget for &App {
 
         let content_layout = Layout::new(
             Direction::Horizontal,
-            [
-                Constraint::Percentage(20),
-                Constraint::Percentage(40),
-                Constraint::Percentage(40),
-            ],
+            [Constraint::Percentage(20), Constraint::Percentage(80)],
         )
         .margin(1)
         .split(main_layout[1]);
-        self.render_logger(content_layout[2], buf);
-        self.render_directory(content_layout[0], buf);
-        self.render_main_content(content_layout[1], buf);
-        if matches!(self.route.active_block, ActiveBlock::Popup) {
-            self.render_track_popup(content_layout[1], buf);
+        self.render_tabs(main_layout[0], buf);
+        match self.selected_tab {
+            SelectedTab::Main => {
+                self.render_directory(content_layout[0], buf);
+                self.render_main_content(content_layout[1], buf);
+                if matches!(self.route.active_block, ActiveBlock::Popup) {
+                    self.render_track_popup(content_layout[1], buf);
+                }
+            }
+            SelectedTab::Logger => {
+                self.render_logger(main_layout[1], buf);
+                return;
+            }
         }
     }
 }
 
 impl App {
+    fn render_tabs(&self, area: Rect, buf: &mut Buffer) {
+        let titles = ["Main", "Logger"];
+        let selected = match self.selected_tab {
+            SelectedTab::Main => 0,
+            SelectedTab::Logger => 1,
+        };
+        let highlight_style = Style::default().fg(Color::Yellow);
+        Tabs::new(titles)
+            .select(selected)
+            .highlight_style(highlight_style)
+            .block(
+                Block::default()
+                    .borders(ratatui::widgets::Borders::ALL)
+                    .title("Tabs"),
+            )
+            .render(area, buf);
+    }
     fn render_logger(&self, area: Rect, buf: &mut Buffer) {
         let state = &self.logger_state;
 

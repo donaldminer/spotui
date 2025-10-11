@@ -15,6 +15,7 @@ async fn main() -> color_eyre::Result<()> {
     let terminal = ratatui::init();
     log::info!("Starting application");
     let result = App::new().await.run(terminal).await;
+    log::info!("Exiting application");
     ratatui::restore();
     result
 }

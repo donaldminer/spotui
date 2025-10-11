@@ -110,6 +110,10 @@ pub struct Route {
     pub hovered_block: ActiveBlock,
 }
 
+pub enum SelectedTab {
+    Main = 0,
+    Logger = 1,
+}
 pub struct App {
     pub running: bool,
     pub events: EventHandler,
@@ -122,16 +126,19 @@ pub struct App {
     pub playlist: TrackList<Playlist, PlaylistItem>,
     pub track_popup: NavList,
     pub logger_state: TuiWidgetState,
+    pub selected_tab: SelectedTab,
 }
 impl App {
     pub async fn new() -> Self {
-        log::info!("Initializing application...");
         let spotify_client = match Self::get_spotify_client().await {
             Ok(client) => {
                 log::info!("Successfully obtained Spotify client.");
                 client
             }
-            Err(e) => panic!("Failed to get spotify client: {e}"),
+            Err(e) => {
+                log::error!("Failed to obtain Spotify client: {e}");
+                panic!("Failed to get spotify client: {e}");
+            }
         };
         Self {
             running: true,
@@ -162,13 +169,13 @@ impl App {
                     .collect(),
                 list_state: ListState::default(),
             },
+            selected_tab: SelectedTab::Main,
             logger_state: TuiWidgetState::default(),
         }
     }
 
     fn start_server(redirect_url_host: String, tx: std::sync::mpsc::SyncSender<(String, String)>) {
         tokio::spawn(async move {
-            log::info!("Starting local server at http://{}", redirect_url_host);
             let sent = Arc::new(Mutex::new(false));
             let sent2 = sent.clone();
 
@@ -227,7 +234,10 @@ impl App {
 
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> color_eyre::Result<()> {
         terminal.clear()?;
+
+        log::debug!("Sending Init event");
         self.events.send(AppEvent::Init);
+
         while self.running {
             terminal.draw(|frame| frame.render_widget(&self, frame.area()))?;
 
@@ -251,6 +261,7 @@ impl App {
     }
 
     pub fn handle_key_events(&mut self, key_event: KeyEvent) -> color_eyre::Result<()> {
+        log::debug!("Key event: {:#?}", key_event);
         match key_event.code {
             KeyCode::Esc | KeyCode::Char('q') => self.events.send(AppEvent::Quit),
             KeyCode::Char('c' | 'C') if key_event.modifiers == KeyModifiers::CONTROL => {
@@ -261,18 +272,27 @@ impl App {
             KeyCode::Down | KeyCode::Char('j') => self.down(),
             KeyCode::Left | KeyCode::Char('h') => {}
             KeyCode::Right | KeyCode::Char('l') => {}
-            KeyCode::Char('t') => self.route.active_block = ActiveBlock::Logger,
             KeyCode::Enter => self.events.send(AppEvent::Select),
+            KeyCode::Char('1') => {
+                self.selected_tab = SelectedTab::Main;
+                self.route.active_block = self.route.hovered_block;
+            }
+            KeyCode::Char('2') => {
+                self.selected_tab = SelectedTab::Logger;
+                self.route.active_block = ActiveBlock::Logger;
+            }
             _ => {}
         }
         Ok(())
     }
 
     pub async fn next(&mut self) {
+        log::info!("Switching active block from {:#?}", self.route.active_block);
         self.route.active_block = match self.route.active_block {
             ActiveBlock::Directory | ActiveBlock::Popup => self.route.hovered_block,
             _ => ActiveBlock::Directory,
         };
+        log::info!("to {:#?}", self.route.active_block);
     }
 
     pub async fn select(&mut self) {
@@ -284,6 +304,10 @@ impl App {
                     Some(2) => self.route.active_block = ActiveBlock::UserTopArtists,
                     _ => {}
                 }
+                log::info!(
+                    "Directory selected: {}",
+                    DIRECTORY[self.directory.list_state.selected().unwrap()]
+                );
                 self.route.hovered_block = self.route.active_block
             }
             ActiveBlock::UserPlaylists => {
@@ -304,18 +328,16 @@ impl App {
                         self.playlist.pages.list = playlist.tracks.items;
                         self.playlist.pages.total = usize::try_from(playlist.tracks.total).unwrap();
                         self.playlist.list_state = ListState::default();
-                        log::info!(
-                            "Playlist selected: {}",
-                            self.user_library.user_playlists.list[i]
-                                .as_ref()
-                                .unwrap()
-                                .name
+                        log::debug!(
+                            "Playlist selected: {:#?}",
+                            self.playlist.result.as_ref().unwrap()
                         );
                     }
                     _ => {}
                 }
                 self.route.active_block = ActiveBlock::Playlist;
                 self.route.hovered_block = ActiveBlock::Playlist;
+                log::info!("User Playlist selected");
             }
             //TODO: Implement Track Selection
             ActiveBlock::UserTopTracks => {
@@ -323,15 +345,12 @@ impl App {
                     Some(i) => {
                         self.track_popup.list_state.select(Some(0));
                         self.route.active_block = ActiveBlock::Popup;
-                        log::info!(
-                            "Track selected: {}",
-                            self.user_library.user_top_tracks.list[i]
-                                .as_ref()
-                                .unwrap()
-                                .name
+                        log::debug!(
+                            "UserTopTracks Track selected: {:#?}",
+                            self.user_library.user_top_tracks.list[i].as_ref().unwrap()
                         );
                     }
-                    _ => log::info!("Track selected"),
+                    _ => log::info!("No Track selected"),
                 }
             }
             //TODO: Implement Artist Selection
@@ -343,20 +362,20 @@ impl App {
                 Some(i) => {
                     self.track_popup.list_state.select(Some(0));
                     self.route.active_block = ActiveBlock::Popup;
-                    log::info!(
-                        "Track selected: {:#?}",
+                    log::debug!(
+                        "Playlist Track selected: {:#?}",
                         self.playlist.pages.list[i].as_ref().unwrap().track
                     );
                 }
-                _ => log::info!("Track selected"),
+                _ => log::info!("No Playlist Track selected"),
             },
             //TODO: Implement Artist block
             ActiveBlock::Artist => {
                 log::info!("Artist block selected");
             }
             ActiveBlock::Popup => {
-                log::info!(
-                    "Option selected: {}",
+                log::debug!(
+                    "TRACK_OPTIONS selected: {}",
                     TRACK_OPTIONS[self.track_popup.list_state.selected().unwrap()]
                 );
                 self.route.active_block = self.route.hovered_block;
@@ -366,6 +385,7 @@ impl App {
     }
 
     pub fn up(&mut self) {
+        log::info!("Up in {:#?}", self.route.active_block);
         match self.route.active_block {
             ActiveBlock::Directory => {
                 self.directory.list_state.select_previous();
@@ -407,6 +427,7 @@ impl App {
     }
 
     pub fn down(&mut self) {
+        log::info!("Down in {:#?}", self.route.active_block);
         match self.route.active_block {
             ActiveBlock::Directory => {
                 if self.directory.list_state.selected() <= Some(DIRECTORY.len() - 2) {
@@ -459,6 +480,7 @@ impl App {
     pub fn tick(&self) {}
 
     pub fn quit(&mut self) {
+        log::info!("Quitting application");
         self.running = false;
     }
 
@@ -486,6 +508,11 @@ impl App {
         self.user_library.user_top_artists.page = Some(top_artists.clone());
         self.user_library.user_top_artists.total = usize::try_from(top_artists.total)?;
         self.user_library.user_top_artists.list = top_artists.items;
+
+        log::info!(
+            "Initialized user data for {:#?}",
+            self.user.as_ref().unwrap().display_name
+        );
 
         Ok(())
     }
