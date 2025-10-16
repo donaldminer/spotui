@@ -4,6 +4,7 @@ use tui_logger;
 
 mod app;
 mod event;
+mod spotify_handler;
 mod ui;
 mod widgets;
 

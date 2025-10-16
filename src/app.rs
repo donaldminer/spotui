@@ -1,4 +1,7 @@
-use crate::event::{AppEvent, Event, EventHandler};
+use crate::{
+    event::{AppEvent, Event, EventHandler},
+    spotify_handler::SpotifyHandler,
+};
 use open;
 use ratatui::{
     DefaultTerminal,
@@ -8,8 +11,7 @@ use ratatui::{
 use reqwest::Url;
 use rouille::{Response, Server};
 use spotify_rs::{
-    AuthCodePkceClient, AuthCodePkceFlow, RedirectUrl, Token,
-    client::Client,
+    AuthCodePkceClient, RedirectUrl, Token,
     model::{
         Page,
         artist::Artist,
@@ -117,7 +119,7 @@ pub enum SelectedTab {
 pub struct App {
     pub running: bool,
     pub events: EventHandler,
-    pub spotify_client: Client<Token, AuthCodePkceFlow>,
+    pub spotify_handler: SpotifyHandler,
     pub user_library: UserLibrary,
     pub directory: NavList,
     pub selected_state: ListState,
@@ -130,20 +132,10 @@ pub struct App {
 }
 impl App {
     pub async fn new() -> Self {
-        let spotify_client = match Self::get_spotify_client().await {
-            Ok(client) => {
-                log::info!("Successfully obtained Spotify client.");
-                client
-            }
-            Err(e) => {
-                log::error!("Failed to obtain Spotify client: {e}");
-                panic!("Failed to get spotify client: {e}");
-            }
-        };
         Self {
             running: true,
             events: EventHandler::new(),
-            spotify_client,
+            spotify_handler: SpotifyHandler::new().await,
             selected_state: ListState::default(),
             directory: NavList {
                 title: "Directory".to_string(),
@@ -313,21 +305,12 @@ impl App {
             ActiveBlock::UserPlaylists => {
                 match self.user_library.user_playlists.list_state.selected() {
                     Some(i) => {
-                        let playlist = spotify_rs::playlist(
-                            self.user_library.user_playlists.list[i]
-                                .as_ref()
-                                .unwrap()
-                                .clone()
-                                .id,
-                        )
-                        .get(&self.spotify_client)
-                        .await
-                        .unwrap();
-
-                        self.playlist.result = Some(playlist.clone());
-                        self.playlist.pages.list = playlist.tracks.items;
-                        self.playlist.pages.total = usize::try_from(playlist.tracks.total).unwrap();
-                        self.playlist.list_state = ListState::default();
+                        let playlist = self
+                            .spotify_handler
+                            .get_playlist(self.user_library.user_playlists.list[i].as_ref())
+                            .await
+                            .unwrap();
+                        self.set_playlist(playlist);
                         log::debug!(
                             "Playlist selected: {:#?}",
                             self.playlist.result.as_ref().unwrap()
@@ -485,29 +468,17 @@ impl App {
     }
 
     pub async fn init(&mut self) -> color_eyre::Result<()> {
-        let spotify_client = &self.spotify_client;
-        self.user = Some(spotify_rs::get_current_user_profile(spotify_client).await?);
+        let user = self.spotify_handler.set_user().await?;
+        self.set_user(user);
 
-        let playlists = spotify_rs::current_user_playlists()
-            .get(spotify_client)
-            .await?;
-        self.user_library.user_playlists.page = Some(playlists.clone());
-        self.user_library.user_playlists.total = usize::try_from(playlists.total)?;
-        self.user_library.user_playlists.list = playlists.items;
+        let playlists = self.spotify_handler.get_user_playlists().await?;
+        self.set_user_playlists(playlists);
 
-        let top_tracks = spotify_rs::current_user_top_tracks()
-            .get(spotify_client)
-            .await?;
-        self.user_library.user_top_tracks.page = Some(top_tracks.clone());
-        self.user_library.user_top_tracks.total = usize::try_from(top_tracks.total)?;
-        self.user_library.user_top_tracks.list = top_tracks.items;
+        let top_tracks = self.spotify_handler.get_top_tracks().await?;
+        self.set_user_top_tracks(top_tracks);
 
-        let top_artists = spotify_rs::current_user_top_artists()
-            .get(spotify_client)
-            .await?;
-        self.user_library.user_top_artists.page = Some(top_artists.clone());
-        self.user_library.user_top_artists.total = usize::try_from(top_artists.total)?;
-        self.user_library.user_top_artists.list = top_artists.items;
+        let top_artists = self.spotify_handler.get_top_artists().await?;
+        self.set_user_top_artists(top_artists);
 
         log::info!(
             "Initialized user data for {:#?}",
@@ -515,5 +486,34 @@ impl App {
         );
 
         Ok(())
+    }
+
+    fn set_playlist(&mut self, playlist: Playlist) {
+        self.playlist.result = Some(playlist.clone());
+        self.playlist.pages.list = playlist.tracks.items;
+        self.playlist.pages.total = usize::try_from(playlist.tracks.total).unwrap();
+        self.playlist.list_state = ListState::default();
+    }
+
+    fn set_user(&mut self, user: PrivateUser) {
+        self.user = Some(user);
+    }
+
+    fn set_user_top_tracks(&mut self, top_tracks: Page<Track>) {
+        self.user_library.user_top_tracks.page = Some(top_tracks.clone());
+        self.user_library.user_top_tracks.total = usize::try_from(top_tracks.total).unwrap();
+        self.user_library.user_top_tracks.list = top_tracks.items;
+    }
+
+    fn set_user_playlists(&mut self, playlists: Page<SimplifiedPlaylist>) {
+        self.user_library.user_playlists.page = Some(playlists.clone());
+        self.user_library.user_playlists.total = usize::try_from(playlists.total).unwrap();
+        self.user_library.user_playlists.list = playlists.items;
+    }
+
+    fn set_user_top_artists(&mut self, top_artists: Page<Artist>) {
+        self.user_library.user_top_artists.page = Some(top_artists.clone());
+        self.user_library.user_top_artists.total = usize::try_from(top_artists.total).unwrap();
+        self.user_library.user_top_artists.list = top_artists.items;
     }
 }
