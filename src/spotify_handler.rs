@@ -61,7 +61,7 @@ impl SpotifyHandler {
         Ok(top_artists)
     }
 
-    pub async fn set_user(&self) -> color_eyre::Result<PrivateUser> {
+    pub async fn get_user(&self) -> color_eyre::Result<PrivateUser> {
         let user = spotify_rs::get_current_user_profile(&self.client).await?;
         Ok(user)
     }

@@ -2,38 +2,19 @@ use crate::{
     event::{AppEvent, Event, EventHandler},
     spotify_handler::SpotifyHandler,
 };
-use open;
 use ratatui::{
     DefaultTerminal,
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
     widgets::{ListItem, ListState},
 };
-use reqwest::Url;
-use rouille::{Response, Server};
-use spotify_rs::{
-    AuthCodePkceClient, RedirectUrl, Token,
-    model::{
-        Page,
-        artist::Artist,
-        playlist::{Playlist, PlaylistItem, SimplifiedPlaylist},
-        track::Track,
-        user::PrivateUser,
-    },
+use spotify_rs::model::{
+    Page,
+    artist::Artist,
+    playlist::{Playlist, PlaylistItem, SimplifiedPlaylist},
+    track::Track,
+    user::PrivateUser,
 };
-use std::sync::{Arc, Mutex};
 use tui_logger::TuiWidgetState;
-
-const SCOPES: [&str; 9] = [
-    "user-top-read",
-    "user-follow-read",
-    "user-read-private",
-    "user-read-email",
-    "user-read-playback-state",
-    "user-read-currently-playing",
-    "user-modify-playback-state",
-    "playlist-read-private",
-    "playlist-read-collaborative",
-];
 
 pub const DIRECTORY: [&str; 3] = ["Playlists", "Top Tracks", "Top Artists"];
 pub const TRACK_OPTIONS: [&str; 4] = ["Play", "Add to Queue", "Go to Artist", "Go to Album"];
@@ -116,6 +97,13 @@ pub enum SelectedTab {
     Main = 0,
     Logger = 1,
 }
+
+pub struct SelectedItem {
+    pub playlist: Option<SimplifiedPlaylist>,
+    pub track: Option<Track>,
+    pub artist: Option<Artist>,
+}
+
 pub struct App {
     pub running: bool,
     pub events: EventHandler,
@@ -129,6 +117,7 @@ pub struct App {
     pub track_popup: NavList,
     pub logger_state: TuiWidgetState,
     pub selected_tab: SelectedTab,
+    pub selected_item: SelectedItem,
 }
 impl App {
     pub async fn new() -> Self {
@@ -162,66 +151,13 @@ impl App {
                 list_state: ListState::default(),
             },
             selected_tab: SelectedTab::Main,
+            selected_item: SelectedItem {
+                playlist: None,
+                track: None,
+                artist: None,
+            },
             logger_state: TuiWidgetState::default(),
         }
-    }
-
-    fn start_server(redirect_url_host: String, tx: std::sync::mpsc::SyncSender<(String, String)>) {
-        tokio::spawn(async move {
-            let sent = Arc::new(Mutex::new(false));
-            let sent2 = sent.clone();
-
-            let server = Server::new(redirect_url_host, move |request| {
-                let url = Url::parse(&format!("http://{}", request.raw_url())).unwrap();
-                let mut queries: Vec<_> = url.query_pairs().into_owned().collect();
-                let auth_code = queries.remove(0).1;
-                let csrf_state = queries.remove(0).1;
-
-                tx.send((auth_code, csrf_state)).unwrap();
-
-                *sent2.lock().unwrap() = true;
-
-                Response::html("<h1>You may close this page</h1><script>window.close()</script>")
-            })
-            .unwrap();
-
-            while !*sent.lock().unwrap() {
-                server.poll();
-            }
-        });
-    }
-
-    pub async fn get_spotify_client() -> color_eyre::Result<AuthCodePkceClient<Token>> {
-        dotenvy::dotenv().ok();
-        let client_id = dotenvy::var("SPOTIFY_CLIENT_ID")?;
-        let redirect_uri = dotenvy::var("SPOTIFY_REDIRECT_URI")?;
-        let redirect_url = Url::parse(&redirect_uri).unwrap();
-        let redirect_url_host = format!(
-            "{}:{}",
-            redirect_url.host_str().unwrap(),
-            redirect_url.port().unwrap()
-        );
-
-        let (tx, rx) = std::sync::mpsc::sync_channel(1);
-
-        Self::start_server(redirect_url_host, tx);
-
-        let auto_refresh = false;
-
-        let (client, url) = AuthCodePkceClient::new(
-            client_id,
-            SCOPES,
-            RedirectUrl::new(redirect_uri)?,
-            auto_refresh,
-        );
-        log::info!("Opening browser for Spotify authentication...");
-        open::that(url.as_str())?;
-
-        let (auth_code, csrf_state) = rx.recv().unwrap();
-
-        let spotify_auth = client.authenticate(auth_code, csrf_state).await?;
-
-        Ok(spotify_auth)
     }
 
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> color_eyre::Result<()> {
@@ -246,6 +182,28 @@ impl App {
                     AppEvent::Init => self.init().await?,
                     AppEvent::Select => self.select().await,
                     AppEvent::Next => self.next().await,
+                    AppEvent::GetUserProfile => {
+                        self.set_user(self.spotify_handler.get_user().await?);
+                    }
+                    AppEvent::GetPlaylist => {
+                        self.set_playlist(
+                            self.spotify_handler
+                                .get_playlist(self.selected_item.playlist.as_ref())
+                                .await?,
+                        );
+                    }
+                    AppEvent::GetTrack => {
+                        self.set_track(self.selected_item.track.as_ref().unwrap().clone())
+                    }
+                    AppEvent::GetUserPlaylists => {
+                        self.set_user_playlists(self.spotify_handler.get_user_playlists().await?);
+                    }
+                    AppEvent::GetUserTopTracks => {
+                        self.set_user_top_tracks(self.spotify_handler.get_top_tracks().await?);
+                    }
+                    AppEvent::GetUserTopArtists => {
+                        self.set_user_top_artists(self.spotify_handler.get_top_artists().await?);
+                    }
                 },
             }
         }
@@ -284,7 +242,6 @@ impl App {
             ActiveBlock::Directory | ActiveBlock::Popup => self.route.hovered_block,
             _ => ActiveBlock::Directory,
         };
-        log::info!("to {:#?}", self.route.active_block);
     }
 
     pub async fn select(&mut self) {
@@ -296,42 +253,27 @@ impl App {
                     Some(2) => self.route.active_block = ActiveBlock::UserTopArtists,
                     _ => {}
                 }
-                log::info!(
-                    "Directory selected: {}",
-                    DIRECTORY[self.directory.list_state.selected().unwrap()]
-                );
-                self.route.hovered_block = self.route.active_block
+                self.route.hovered_block = self.route.active_block;
             }
             ActiveBlock::UserPlaylists => {
                 match self.user_library.user_playlists.list_state.selected() {
                     Some(i) => {
-                        let playlist = self
-                            .spotify_handler
-                            .get_playlist(self.user_library.user_playlists.list[i].as_ref())
-                            .await
-                            .unwrap();
-                        self.set_playlist(playlist);
-                        log::debug!(
-                            "Playlist selected: {:#?}",
-                            self.playlist.result.as_ref().unwrap()
-                        );
+                        self.selected_item.playlist =
+                            self.user_library.user_playlists.list[i].clone();
+
+                        self.events.send(AppEvent::GetPlaylist);
                     }
                     _ => {}
                 }
                 self.route.active_block = ActiveBlock::Playlist;
                 self.route.hovered_block = ActiveBlock::Playlist;
-                log::info!("User Playlist selected");
             }
             //TODO: Implement Track Selection
             ActiveBlock::UserTopTracks => {
                 match self.user_library.user_top_tracks.list_state.selected() {
-                    Some(i) => {
+                    Some(_i) => {
                         self.track_popup.list_state.select(Some(0));
                         self.route.active_block = ActiveBlock::Popup;
-                        log::debug!(
-                            "UserTopTracks Track selected: {:#?}",
-                            self.user_library.user_top_tracks.list[i].as_ref().unwrap()
-                        );
                     }
                     _ => log::info!("No Track selected"),
                 }
@@ -342,13 +284,9 @@ impl App {
             },
             //TODO: Implement Track Selection
             ActiveBlock::Playlist => match self.playlist.list_state.selected() {
-                Some(i) => {
+                Some(_i) => {
                     self.track_popup.list_state.select(Some(0));
                     self.route.active_block = ActiveBlock::Popup;
-                    log::debug!(
-                        "Playlist Track selected: {:#?}",
-                        self.playlist.pages.list[i].as_ref().unwrap().track
-                    );
                 }
                 _ => log::info!("No Playlist Track selected"),
             },
@@ -357,10 +295,6 @@ impl App {
                 log::info!("Artist block selected");
             }
             ActiveBlock::Popup => {
-                log::debug!(
-                    "TRACK_OPTIONS selected: {}",
-                    TRACK_OPTIONS[self.track_popup.list_state.selected().unwrap()]
-                );
                 self.route.active_block = self.route.hovered_block;
             }
             _ => { /* Do nothing */ }
@@ -368,7 +302,6 @@ impl App {
     }
 
     pub fn up(&mut self) {
-        log::info!("Up in {:#?}", self.route.active_block);
         match self.route.active_block {
             ActiveBlock::Directory => {
                 self.directory.list_state.select_previous();
@@ -410,7 +343,6 @@ impl App {
     }
 
     pub fn down(&mut self) {
-        log::info!("Down in {:#?}", self.route.active_block);
         match self.route.active_block {
             ActiveBlock::Directory => {
                 if self.directory.list_state.selected() <= Some(DIRECTORY.len() - 2) {
@@ -468,22 +400,10 @@ impl App {
     }
 
     pub async fn init(&mut self) -> color_eyre::Result<()> {
-        let user = self.spotify_handler.set_user().await?;
-        self.set_user(user);
-
-        let playlists = self.spotify_handler.get_user_playlists().await?;
-        self.set_user_playlists(playlists);
-
-        let top_tracks = self.spotify_handler.get_top_tracks().await?;
-        self.set_user_top_tracks(top_tracks);
-
-        let top_artists = self.spotify_handler.get_top_artists().await?;
-        self.set_user_top_artists(top_artists);
-
-        log::info!(
-            "Initialized user data for {:#?}",
-            self.user.as_ref().unwrap().display_name
-        );
+        self.events.send(AppEvent::GetUserProfile);
+        self.events.send(AppEvent::GetUserPlaylists);
+        self.events.send(AppEvent::GetUserTopTracks);
+        self.events.send(AppEvent::GetUserTopArtists);
 
         Ok(())
     }
@@ -493,6 +413,10 @@ impl App {
         self.playlist.pages.list = playlist.tracks.items;
         self.playlist.pages.total = usize::try_from(playlist.tracks.total).unwrap();
         self.playlist.list_state = ListState::default();
+    }
+
+    fn set_track(&mut self, track: Track) {
+        self.selected_item.track = Some(track);
     }
 
     fn set_user(&mut self, user: PrivateUser) {

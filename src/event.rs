@@ -19,6 +19,12 @@ pub enum AppEvent {
     Select,
     Next,
     Init,
+    GetUserProfile,
+    GetUserTopTracks,
+    GetUserTopArtists,
+    GetUserPlaylists,
+    GetPlaylist,
+    GetTrack,
 }
 
 /// Terminal event handler.
